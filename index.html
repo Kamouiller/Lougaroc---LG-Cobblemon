@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Le Lougaroc d'Atalante</title>
+<link href="https://fonts.googleapis.com/css2?family=Almendra:wght@400;700&family=Nunito:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#14122b;--moon:#cfd8ff;--gold:#f2b84b;--blood:#b3342f;--paper:#f4ecd8}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;font:16px Nunito,sans-serif;background:#f6d98b;color:#2a1e0c;transition:background .8s,color .8s;text-align:center;padding:12px}
+body.night{background:var(--ink);color:var(--moon)}
+h1,h2{font-family:Almendra,serif;margin:.3em 0}h1{font-size:2.2rem}
+main{max-width:520px;margin:auto}
+button,input{font:inherit;padding:.6em 1em;border-radius:10px;border:2px solid currentColor;background:transparent;color:inherit;margin:3px;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--gold)}
+button.sel,button.main{background:var(--gold);color:var(--ink);border-color:var(--gold)}
+.hero{width:120px;height:120px;object-fit:contain}
+.card{width:190px;height:270px;margin:12px auto;border-radius:16px;border:4px solid var(--gold);background:var(--paper);color:#2a1e0c;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-family:Almendra,serif}
+.card.back{background:repeating-linear-gradient(45deg,var(--ink),var(--ink) 10px,#241f4d 10px,#241f4d 20px);color:var(--gold)}
+.card img{width:150px;height:150px;object-fit:contain}.card b{font-size:1.4rem}
+.box{border:2px solid currentColor;border-radius:12px;padding:10px;margin:10px 0}
+dialog{max-width:520px;max-height:85vh;overflow:auto;background:var(--paper);color:#2a1e0c;border:3px solid var(--gold);border-radius:14px;text-align:left}
+dialog div{display:flex;gap:10px;align-items:center;margin:8px 0}dialog img{width:56px;height:56px}
+.dead{opacity:.45;text-decoration:line-through}
+</style></head><body>
+<main>
+<h1>Le Lougaroc d'Atalante</h1>
+<div id="join">
+  <p>Un Loup-Garou version Pokémon, sans maître du jeu.</p>
+  <input id="nm" placeholder="Ton pseudo" maxlength="16"><br>
+  <input id="rc" placeholder="Code du village (vide = créer)" maxlength="4" style="text-transform:uppercase"><br>
+  <button class="main" onclick="go()">Entrer dans le village</button>
+  <button onclick="document.getElementById('ex').showModal()">Explication des rôles</button>
+</div>
+<div id="app"></div>
+</main>
+<dialog id="ex"><h2>Les rôles</h2><div id="exl"></div><button onclick="ex.close()">Fermer</button></dialog>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import {getDatabase,ref,set,update,onValue,get} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+// 1) Colle ici la config de ton projet Firebase (Realtime Database)
+const firebaseConfig = {
+  apiKey: "AIzaSyASwclecjWuw8Ty48cetXoyT4tdg4sJY3M",
+  authDomain: "lougaroc---lg-cobblemon.firebaseapp.com",
+  databaseURL: "https://lougaroc---lg-cobblemon-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "lougaroc---lg-cobblemon",
+  storageBucket: "lougaroc---lg-cobblemon.firebasestorage.app",
+  messagingSenderId: "846710969243",
+  appId: "1:846710969243:web:6a0ffa62ed5616561b873e"
+};
+const db=getDatabase(initializeApp(CONFIG));
+const IMG=n=>`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${n}.png`;
+const R={
+loup:{n:"Loup-garou",p:"Lougaroc Nocturne",i:10126,d:"Chaque nuit, les loups dévorent un villageois. Gagnent quand ils sont aussi nombreux que les autres."},
+loupblanc:{n:"Loup Blanc",p:"Lougaroc Crépusculaire",i:10152,d:"Loup solitaire : une nuit sur deux, il peut tuer un autre loup. Gagne seul s'il survit à tous."},
+voyante:{n:"Voyante",p:"Alakazam",i:65,d:"Chaque nuit, découvre le vrai rôle d'un joueur."},
+sorciere:{n:"Sorcière",p:"Sorcilence",i:858,d:"Une potion de vie (sauve la victime des loups) et une potion de mort, à usage unique."},
+chasseur:{n:"Chasseur",p:"Lézargus",i:818,d:"S'il meurt, il emporte un joueur avec lui."},
+cupidon:{n:"Cupidon",p:"Lovdisc",i:370,d:"La première nuit, lie deux joueurs : si l'un meurt, l'autre aussi."},
+garde:{n:"Garde",p:"M. Mime",i:122,d:"Protège un joueur chaque nuit (jamais le même deux nuits de suite)."},
+corbeau:{n:"Corbeau",p:"Corboss",i:430,d:"Désigne un joueur qui recevra 2 votes en plus au prochain vote du village."},
+voleur:{n:"Voleur",p:"Roublenard",i:828,d:"La première nuit, échange son rôle avec celui d'un autre joueur."},
+villageois:{n:"Villageois",p:"Mime Jr",i:439,d:"Aucun pouvoir : il observe, débat et vote."}};
+exl.innerHTML=Object.values(R).map(r=>`<div><img src="${IMG(r.i)}" alt=""><span><b>${r.n}</b> (${r.p})<br>${r.d}</span></div>`).join("");
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let code,pid=sessionStorage.pid||(sessionStorage.pid=Math.random().toString(36).slice(2,9)),S=null,sel=[],flipped=false;
+const room=p=>ref(db,`rooms/${code}${p?"/"+p:""}`),upd=o=>update(room(),o);
+
+window.go=async()=>{
+  const name=nm.value.trim();if(!name)return alert("Choisis un pseudo.");
+  code=rc.value.trim().toUpperCase();
+  if(!code){code=Math.random().toString(36).slice(2,6).toUpperCase();
+    await set(room(),{phase:"lobby",host:pid,players:{}});}
+  else{const s=await get(room());if(!s.exists()||s.val().phase!="lobby")return alert("Village introuvable ou partie déjà commencée.");}
+  await set(room("players/"+pid),{name,alive:true,role:""});
+  join.hidden=true;onValue(room(),s=>{S=s.val();render();});
+};
+window.flip=()=>{flipped=!flipped;render()};
+window.pick=async(id,max)=>{
+  sel=sel.includes(id)?sel.filter(x=>x!=id):[...sel,id];
+  if(sel.length>=max){const a=[...sel];sel=[];if(!S.step.ans)await set(room("step/ans"),a);}else render();
+};
+window.ans=v=>set(room("step/ans"),v);
+window.vote=id=>set(room("votes/"+pid),id);
+
+function render(){
+  if(!S)return;const me=S.players[pid],ph=S.phase,P=S.players;
+  document.body.className=(ph=="night"||ph=="roles")?"night":"";
+  const nm_=i=>P[i].name,st=S.step;
+  let h=`<p>Village <b>${code}</b></p>`;
+  if(ph=="lobby"){
+    h+=`<h2>Salle d'attente</h2><div class="box">${Object.values(P).map(p=>p.name).join(", ")}</div>`;
+    h+=S.host==pid?(Object.keys(P).length>=4?`<button class="main" onclick="start()">Lancer la partie</button>`:`<p>Il faut au moins 4 joueurs.</p>`):`<p>En attente du lancement…</p>`;
+  }else{
+    h+=`<img class="hero" src="${IMG(ph=="night"||ph=="roles"?792:791)}" alt="${ph=="night"||ph=="roles"?"Lunala":"Solgaleo"}">`;
+    h+=`<h2>${S.msg||""}</h2>`;
+    if(S.reveal&&me.role==S.reveal.role)h+=`<div class="box">${S.reveal.txt}</div>`;
+    if(S.lovers&&S.lovers.includes(pid))h+=`<div class="box">Tu es lié(e) à ${nm_(S.lovers.find(x=>x!=pid))}.</div>`;
+    if(me.role){const r=R[me.role];h+=flipped?`<div class="card" onclick="flip()"><img src="${IMG(r.i)}" alt=""><b>${r.n}</b><span>${r.p}</span></div><small>${r.d}</small>`:`<div class="card back" onclick="flip()" tabindex="0"><b>Touche ta carte</b></div>`;}
+    const alive=Object.keys(P).filter(i=>P[i].alive);
+    if(st&&!st.ans&&(me.alive||st.role=="chasseur")&&(st.role==me.role||(st.role=="loup"&&me.role=="loupblanc"))){
+      let opts=alive.filter(i=>i!=pid||["garde","cupidon"].includes(st.role));
+      if(st.role=="loupblanc")opts=alive.filter(i=>P[i].role=="loup");
+      if(st.role=="loup")opts=alive.filter(i=>!["loup","loupblanc"].includes(P[i].role));
+      h+=`<div class="box"><b>${st.prompt}</b><br>`;
+      if(st.role=="sorciere"){
+        if(S.witch.life&&st.extra)h+=`<button class="main" onclick="ans({save:1})">Sauver ${st.extra}</button>`;
+        if(S.witch.death)h+=opts.map(i=>`<button onclick="ans({kill:'${i}'})">Empoisonner ${nm_(i)}</button>`).join("");
+        h+=`<button onclick="ans({pass:1})">Ne rien faire</button>`;
+      }else h+=opts.map(i=>`<button class="${sel.includes(i)?"sel":""}" onclick="pick('${i}',${st.picks})">${nm_(i)}</button>`).join("");
+      h+=`</div>`;
+    }
+    if(ph=="vote"&&me.alive){
+      const mine=(S.votes||{})[pid];
+      h+=`<div class="box"><b>Qui bannir du village ?</b><br>${alive.filter(i=>i!=pid).map(i=>`<button class="${mine==i?"sel":""}" onclick="vote('${i}')">${nm_(i)}</button>`).join("")}</div>`;
+    }
+    h+=`<div class="box">${Object.entries(P).map(([i,p])=>`<span class="${p.alive?"":"dead"}">${p.name}${ph=="end"||!p.alive?" ("+R[p.role].p+")":""}</span>`).join(" · ")}</div>`;
+  }
+  h+=`<button onclick="ex.showModal()">Explication des rôles</button>`;
+  app.innerHTML=h;
+}
+
+// ---------- Moteur de jeu (tourne dans le navigateur de l'hôte) ----------
+window.start=async()=>{
+  const ids=Object.keys(S.players),n=ids.length;
+  const order=["loup","voyante","villageois","villageois","sorciere","chasseur","loup","garde","cupidon","corbeau","loupblanc","voleur"];
+  const roles=Array.from({length:n},(_,i)=>order[i]||"villageois").sort(()=>Math.random()-.5);
+  const u={};ids.forEach((id,i)=>u["players/"+id+"/role"]=roles[i]);
+  await upd({...u,phase:"roles",msg:"Les cartes sont distribuées. Touche la tienne !",witch:{life:1,death:1}});
+  run();
+};
+const waitFor=async(f,ms)=>{const t=Date.now();while(Date.now()-t<ms){const v=f();if(v)return v;await sleep(400)}return null};
+async function run(){
+  await sleep(10000);
+  let night=0,lovers=[],guardPrev=null;
+  const holders=r=>Object.entries(S.players).filter(([,p])=>(r=="loup"?["loup","loupblanc"].includes(p.role):p.role==r)&&(p.alive||r=="chasseur"));
+  const alive=()=>Object.keys(S.players).filter(i=>S.players[i].alive);
+  async function ask(role,prompt,picks=1,extra=null){
+    if(!holders(role).length){await sleep(4000);return null}
+    await upd({step:{role,prompt,picks,extra,ans:null}});
+    const a=await waitFor(()=>S.step&&S.step.ans,45000);
+    await upd({step:null});return a;
+  }
+  const dead=[];
+  async function kill(id){
+    const p=S.players[id];if(!p||!p.alive)return;
+    await set(room("players/"+id+"/alive"),false);dead.push(id);
+    if(p.role=="chasseur"){const a=await ask("chasseur","Tu meurs ! Emporte quelqu'un avec toi.");if(a)await kill(a[0])}
+    if(lovers.includes(id))await kill(lovers.find(x=>x!=id));
+  }
+  function winner(){
+    const A=alive().map(i=>S.players[i].role),w=A.filter(r=>r=="loup"||r=="loupblanc").length;
+    if(!w)return"Le village a gagné !";
+    if(A.length==1&&A[0]=="loupblanc")return"Le Loup Blanc gagne seul !";
+    if(w>=A.length-w)return"Les loups ont gagné !";
+    return null;
+  }
+  while(true){
+    night++;dead.length=0;
+    await upd({phase:"night",msg:"La nuit tombe sur Atalante…",votes:null});
+    if(night==1){
+      const v=await ask("voleur","Échange ton rôle avec un autre joueur.");
+      if(v){const me=holders("voleur")[0][0],r=S.players[v[0]].role;
+        await upd({["players/"+v[0]+"/role"]:"voleur",["players/"+me+"/role"]:r});}
+      const c=await ask("cupidon","Désigne deux amoureux.",2);
+      if(c){lovers=c;await upd({lovers})}
+    }
+    const g=await ask("garde","Qui protéger cette nuit ?");
+    let guarded=g&&g[0]!=guardPrev?g[0]:null;guardPrev=g?g[0]:null;
+    const vy=await ask("voyante","Quel rôle veux-tu découvrir ?");
+    if(vy){await upd({reveal:{role:"voyante",txt:`${S.players[vy[0]].name} est ${R[S.players[vy[0]].role].p}.`}});await sleep(6000);await upd({reveal:null})}
+    const lv=await ask("loup","Loups, qui dévorer ?");
+    const victim=lv?lv[0]:null;
+    let lb=null;
+    if(night%2==0){const x=await ask("loupblanc","Loup Blanc, quel loup éliminer ?");lb=x?x[0]:null}
+    const w=await ask("sorciere","Sorcière, que fais-tu ?",1,victim?S.players[victim].name:null);
+    let saved=false,poison=null;
+    if(w&&w.save){saved=true;await upd({"witch/life":0})}
+    if(w&&w.kill){poison=w.kill;await upd({"witch/death":0})}
+    const cb=await ask("corbeau","Qui désigner au Corbeau ?");
+    const mark=cb?cb[0]:null;
+    await upd({phase:"day",msg:"Le jour se lève…"});
+    if(victim&&!saved&&victim!=guarded)await kill(victim);
+    if(poison)await kill(poison);
+    if(lb)await kill(lb);
+    await upd({msg:dead.length?"Cette nuit : "+dead.map(i=>S.players[i].name).join(", ")+" ("+dead.map(i=>R[S.players[i].role].p).join(", ")+")":"Personne n'est mort cette nuit."});
+    await sleep(7000);
+    let win=winner();if(win)return end(win);
+    await upd({phase:"vote",msg:"Débattez, puis votez ! (60 s)",votes:{}});
+    await waitFor(()=>Object.keys(S.votes||{}).length>=alive().length,60000);
+    const t={};Object.values(S.votes||{}).forEach(v=>t[v]=(t[v]||0)+1);
+    if(mark)t[mark]=(t[mark]||0)+2;
+    const top=Object.entries(t).sort((a,b)=>b[1]-a[1]);
+    dead.length=0;
+    if(top.length&&(top.length==1||top[0][1]>top[1][1])){
+      await kill(top[0][0]);
+      await upd({msg:`${S.players[top[0][0]].name} est banni(e) : c'était ${R[S.players[top[0][0]].role].p}.`});
+    }else await upd({msg:"Égalité : personne n'est banni."});
+    await sleep(7000);
+    win=winner();if(win)return end(win);
+  }
+}
+const end=m=>upd({phase:"end",msg:m,step:null});
+</script></body></html>
