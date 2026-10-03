@@ -39,15 +39,13 @@ dialog div{display:flex;gap:10px;align-items:center;margin:8px 0}dialog img{widt
 
 <script type="module">
 // 1) Colle ici la config de ton projet Firebase (Realtime Database)
-const firebaseConfig = {
-  apiKey: "AIzaSyASwclecjWuw8Ty48cetXoyT4tdg4sJY3M",
+const CONFIG={apiKey: "AIzaSyASwclecjWuw8Ty48cetXoyT4tdg4sJY3M",
   authDomain: "lougaroc---lg-cobblemon.firebaseapp.com",
   databaseURL: "https://lougaroc---lg-cobblemon-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "lougaroc---lg-cobblemon",
   storageBucket: "lougaroc---lg-cobblemon.firebasestorage.app",
   messagingSenderId: "846710969243",
-  appId: "1:846710969243:web:6a0ffa62ed5616561b873e"
-};
+  appId: "1:846710969243:web:6a0ffa62ed5616561b873e"};
 let db,ref,set,update,onValue,get;
 async function initFb(){
   if(db)return;
